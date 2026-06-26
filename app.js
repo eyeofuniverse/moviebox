@@ -2,7 +2,10 @@
 // Get your free TMDB API key at: https://www.themoviedb.org/settings/api
 const TMDB_KEY = "a656c2d67487bf7b20b7b113e779b508";
 
+const OMDB_KEY = "82b86556";
+
 const TMDB   = "https://api.themoviedb.org/3";
+const OMDB   = "https://www.omdbapi.com";
 const IMG    = "https://image.tmdb.org/t/p/";
 const STREAM = "https://streamimdb.ru/embed";
 const PREFIXES = ["play", "run", "stream", "direct", "fast"];
@@ -241,10 +244,11 @@ function initArrows(shell) {
 }
 
 // ─── CLICK HANDLER ───────────────────────────────────────────────────────────
-async function onCardClick(tmdbId, mt, title, poster, plot, score, year, autoPlay) {
-  showModal({ title, poster, plot, score, year, mt, loading: true });
+// directImdbId: passed when we already have the IMDB ID (e.g. from OMDB search results)
+async function onCardClick(tmdbId, mt, title, poster, plot, score, year, autoPlay, directImdbId = null) {
+  showModal({ title, poster, plot, score, year, mt, loading: !directImdbId });
 
-  const imdbId = await getImdbId(tmdbId, mt);
+  const imdbId = directImdbId || await getImdbId(tmdbId, mt, title, year);
 
   if (imdbId && autoPlay) {
     const streamType = mt === "tv" ? "tv" : "movie";
@@ -254,12 +258,27 @@ async function onCardClick(tmdbId, mt, title, poster, plot, score, year, autoPla
   fillModalSources(imdbId, mt);
 }
 
-async function getImdbId(tmdbId, mt) {
+async function getImdbId(tmdbId, mt, title, year) {
+  // Try TMDB first
   try {
     const type = mt === "tv" ? "tv" : "movie";
     const data = await api(`/${type}/${tmdbId}?append_to_response=external_ids`);
-    return data?.imdb_id || data?.external_ids?.imdb_id || null;
-  } catch (_) { return null; }
+    const id = data?.imdb_id || data?.external_ids?.imdb_id;
+    if (id) return id;
+  } catch (_) {}
+
+  // Fallback: search OMDB by title so we still get an IMDB ID
+  if (title) {
+    try {
+      const y = year ? `&y=${year}` : "";
+      const t = mt === "tv" ? "&type=series" : "&type=movie";
+      const res = await fetch(`${OMDB}/?t=${encodeURIComponent(title)}${y}${t}&apikey=${OMDB_KEY}`);
+      const data = await res.json();
+      if (data.Response === "True" && data.imdbID) return data.imdbID;
+    } catch (_) {}
+  }
+
+  return null;
 }
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
@@ -339,6 +358,7 @@ async function search(query, page = 1) {
     $srGrid.innerHTML = "";
     $srLabel.textContent = query;
     $pagBar.classList.add("hidden");
+    $moreBtn.onclick = null; // reset in case previous search was OMDB mode
     showSearchView();
   }
 
@@ -351,7 +371,8 @@ async function search(query, page = 1) {
     const items = (data?.results || []).filter(x => x.media_type !== "person");
 
     if (!items.length && page === 1) {
-      $srGrid.innerHTML = `<p class="empty-msg">No results found for &ldquo;${esc(query)}&rdquo;.</p>`;
+      // TMDB found nothing — try OMDB as fallback
+      await searchOmdb(query, 1);
       return;
     }
 
@@ -375,6 +396,71 @@ async function search(query, page = 1) {
     $srLoader.classList.add("hidden");
     showToast("Search failed. Check your connection.");
   }
+}
+
+// OMDB search — used when TMDB has no results for a query
+async function searchOmdb(query, page = 1) {
+  $srLoader.classList.remove("hidden");
+  try {
+    const res  = await fetch(`${OMDB}/?s=${encodeURIComponent(query)}&page=${page}&apikey=${OMDB_KEY}`);
+    const data = await res.json();
+    $srLoader.classList.add("hidden");
+
+    if (data.Response === "False" || !data.Search?.length) {
+      if (page === 1) $srGrid.innerHTML = `<p class="empty-msg">No results found for &ldquo;${esc(query)}&rdquo;.</p>`;
+      return;
+    }
+
+    const total = parseInt(data.totalResults, 10) || 0;
+    searchTotal = Math.ceil(total / 10);
+    searchPg    = page;
+
+    data.Search.forEach(item => $srGrid.appendChild(buildOmdbCard(item)));
+
+    if (searchPg < searchTotal) {
+      $moreBtn.onclick = () => searchOmdb(query, searchPg + 1);
+      $moreBtn.classList.remove("hidden");
+      $pgCount.textContent = `Showing ${Math.min(page * 10, total)} of ${total} results (via IMDB)`;
+    } else {
+      $moreBtn.classList.add("hidden");
+      $pgCount.textContent = `All ${total} result${total !== 1 ? "s" : ""} shown (via IMDB)`;
+    }
+    $pagBar.classList.remove("hidden");
+  } catch (_) {
+    $srLoader.classList.add("hidden");
+    showToast("Search failed. Check your connection.");
+  }
+}
+
+// Card built from an OMDB search result — already has the IMDB ID, no TMDB lookup needed
+function buildOmdbCard(item) {
+  const mt     = item.Type === "series" || item.Type === "episode" ? "tv" : "movie";
+  const poster = item.Poster && item.Poster !== "N/A" ? item.Poster : "";
+  const year   = item.Year || "";
+  const title  = item.Title || "Unknown";
+  const imdbId = item.imdbID;
+
+  const div = document.createElement("div");
+  div.className = "movie-card";
+  div.tabIndex = 0;
+  div.setAttribute("role", "button");
+  div.setAttribute("aria-label", `Watch ${title}`);
+
+  div.innerHTML = `
+    ${poster
+      ? `<img class="card-img" src="${poster}" alt="${esc(title)}" loading="lazy"/>`
+      : `<div class="card-no-img"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>No Image</div>`}
+    <span class="card-type-badge${mt === "tv" ? " tv" : ""}">${mt === "tv" ? "TV" : "Film"}</span>
+    <div class="card-overlay">
+      <button class="card-play-btn" aria-label="Play">&#9654;</button>
+      <div class="card-title">${esc(title)}</div>
+      <div class="card-sub">${year ? `<span>${year}</span>` : ""}</div>
+    </div>`;
+
+  const go = () => onCardClick(null, mt, title, poster, "", "", year, true, imdbId);
+  div.addEventListener("click", go);
+  div.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") go(); });
+  return div;
 }
 
 function showSearchView() {
@@ -414,7 +500,10 @@ $srClear.addEventListener("click", () => {
   showHomeView();
 });
 
-$moreBtn.addEventListener("click", () => search(searchQ, searchPg + 1));
+$moreBtn.addEventListener("click", () => {
+  // Default TMDB load more — overridden to searchOmdb when in OMDB mode
+  if (!$moreBtn.onclick) search(searchQ, searchPg + 1);
+});
 
 // ─── HEADER SCROLL ───────────────────────────────────────────────────────────
 window.addEventListener("scroll", () => {
