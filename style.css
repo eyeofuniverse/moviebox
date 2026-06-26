@@ -380,6 +380,18 @@ body {
 }
 .card-type-badge.tv { background: rgba(30,60,200,0.8); }
 
+.card-source-badge {
+  position: absolute;
+  top: 8px; left: 8px;
+  background: rgba(245,197,24,0.9);
+  color: #000;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
 .card-overlay {
   position: absolute; inset: 0;
   background: linear-gradient(to top, rgba(0,0,0,0.97) 0%, rgba(0,0,0,0.4) 45%, transparent 70%);

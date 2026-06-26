@@ -349,6 +349,9 @@ $modalBg.addEventListener("click", closeModal);
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
 
 // ─── SEARCH ──────────────────────────────────────────────────────────────────
+// Fires TMDB and OMDB/IMDB in parallel every time, merges results, deduplicates by title.
+// OMDB is fetched only on page 1 (its results are prepended to the first page).
+// Load More fetches the next TMDB page (OMDB page 1 was already appended).
 async function search(query, page = 1) {
   if (!query.trim()) return;
 
@@ -358,31 +361,44 @@ async function search(query, page = 1) {
     $srGrid.innerHTML = "";
     $srLabel.textContent = query;
     $pagBar.classList.add("hidden");
-    $moreBtn.onclick = null; // reset in case previous search was OMDB mode
     showSearchView();
   }
 
   $srLoader.classList.remove("hidden");
 
   try {
-    const data = await api(`/search/multi?query=${encodeURIComponent(query)}&page=${page}&language=en-US&include_adult=false`);
+    const tmdbPromise = api(
+      `/search/multi?query=${encodeURIComponent(query)}&page=${page}&language=en-US&include_adult=false`
+    );
+    // Only fetch OMDB on the first page (avoids duplicate IMDB cards on subsequent pages)
+    const omdbPromise = page === 1
+      ? fetch(`${OMDB}/?s=${encodeURIComponent(query)}&apikey=${OMDB_KEY}`).then(r => r.json()).catch(() => null)
+      : Promise.resolve(null);
+
+    const [tmdbData, omdbData] = await Promise.all([tmdbPromise, omdbPromise]);
     $srLoader.classList.add("hidden");
 
-    const items = (data?.results || []).filter(x => x.media_type !== "person");
+    const tmdbItems = (tmdbData?.results || []).filter(x => x.media_type !== "person");
+    const omdbItems = omdbData?.Response === "True" ? (omdbData.Search || []) : [];
 
-    if (!items.length && page === 1) {
-      // TMDB found nothing — try OMDB as fallback
-      await searchOmdb(query, 1);
+    if (!tmdbItems.length && !omdbItems.length && page === 1) {
+      $srGrid.innerHTML = `<p class="empty-msg">No results found for &ldquo;${esc(query)}&rdquo;.</p>`;
       return;
     }
 
-    searchTotal = data.total_pages || 1;
-    searchPg    = page;
+    // Normalised title set for deduplication (OMDB cards vs TMDB cards)
+    const seen = new Set(tmdbItems.map(x => normalizeTitle(x.title || x.name)));
 
-    items.forEach(item => {
-      const card = buildCard(item, item.media_type || "movie");
-      $srGrid.appendChild(card);
-    });
+    // TMDB cards first
+    tmdbItems.forEach(item => $srGrid.appendChild(buildCard(item, item.media_type || "movie")));
+
+    // IMDB/OMDB cards — skip anything whose title is already shown via TMDB
+    omdbItems
+      .filter(x => !seen.has(normalizeTitle(x.Title)))
+      .forEach(item => $srGrid.appendChild(buildOmdbCard(item)));
+
+    searchTotal = tmdbData?.total_pages || 1;
+    searchPg    = page;
 
     if (searchPg < searchTotal) {
       $moreBtn.classList.remove("hidden");
@@ -398,41 +414,7 @@ async function search(query, page = 1) {
   }
 }
 
-// OMDB search — used when TMDB has no results for a query
-async function searchOmdb(query, page = 1) {
-  $srLoader.classList.remove("hidden");
-  try {
-    const res  = await fetch(`${OMDB}/?s=${encodeURIComponent(query)}&page=${page}&apikey=${OMDB_KEY}`);
-    const data = await res.json();
-    $srLoader.classList.add("hidden");
-
-    if (data.Response === "False" || !data.Search?.length) {
-      if (page === 1) $srGrid.innerHTML = `<p class="empty-msg">No results found for &ldquo;${esc(query)}&rdquo;.</p>`;
-      return;
-    }
-
-    const total = parseInt(data.totalResults, 10) || 0;
-    searchTotal = Math.ceil(total / 10);
-    searchPg    = page;
-
-    data.Search.forEach(item => $srGrid.appendChild(buildOmdbCard(item)));
-
-    if (searchPg < searchTotal) {
-      $moreBtn.onclick = () => searchOmdb(query, searchPg + 1);
-      $moreBtn.classList.remove("hidden");
-      $pgCount.textContent = `Showing ${Math.min(page * 10, total)} of ${total} results (via IMDB)`;
-    } else {
-      $moreBtn.classList.add("hidden");
-      $pgCount.textContent = `All ${total} result${total !== 1 ? "s" : ""} shown (via IMDB)`;
-    }
-    $pagBar.classList.remove("hidden");
-  } catch (_) {
-    $srLoader.classList.add("hidden");
-    showToast("Search failed. Check your connection.");
-  }
-}
-
-// Card built from an OMDB search result — already has the IMDB ID, no TMDB lookup needed
+// Card built from an OMDB/IMDB result — already has the IMDB ID, skips TMDB lookup
 function buildOmdbCard(item) {
   const mt     = item.Type === "series" || item.Type === "episode" ? "tv" : "movie";
   const poster = item.Poster && item.Poster !== "N/A" ? item.Poster : "";
@@ -451,6 +433,7 @@ function buildOmdbCard(item) {
       ? `<img class="card-img" src="${poster}" alt="${esc(title)}" loading="lazy"/>`
       : `<div class="card-no-img"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>No Image</div>`}
     <span class="card-type-badge${mt === "tv" ? " tv" : ""}">${mt === "tv" ? "TV" : "Film"}</span>
+    <span class="card-source-badge">IMDB</span>
     <div class="card-overlay">
       <button class="card-play-btn" aria-label="Play">&#9654;</button>
       <div class="card-title">${esc(title)}</div>
@@ -500,10 +483,7 @@ $srClear.addEventListener("click", () => {
   showHomeView();
 });
 
-$moreBtn.addEventListener("click", () => {
-  // Default TMDB load more — overridden to searchOmdb when in OMDB mode
-  if (!$moreBtn.onclick) search(searchQ, searchPg + 1);
-});
+$moreBtn.addEventListener("click", () => search(searchQ, searchPg + 1));
 
 // ─── HEADER SCROLL ───────────────────────────────────────────────────────────
 window.addEventListener("scroll", () => {
@@ -540,6 +520,10 @@ function showToast(msg) {
 function esc(s) {
   if (!s) return "";
   return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function normalizeTitle(s) {
+  return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function posterUrl(path, size) {
