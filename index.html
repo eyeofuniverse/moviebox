@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Muntaha's MovieBox</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<header class="header" id="header">
+  <a class="logo" href="#" id="logoLink">
+    <span class="logo-play">&#9654;</span>
+    <span class="logo-name">Muntaha's <strong>MovieBox</strong></span>
+  </a>
+  <div class="header-center">
+    <div class="search-bar">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" id="searchInput" placeholder="Search movies, series, anime..." autocomplete="off" spellcheck="false"/>
+      <button class="search-clear hidden" id="searchClear" aria-label="Clear search">&#x2715;</button>
+    </div>
+  </div>
+  <p class="header-credit">by Minhaj</p>
+</header>
+
+<section class="hero" id="heroSection">
+  <div class="hero-bg" id="heroBg"></div>
+  <div class="hero-gradient"></div>
+  <div class="hero-content" id="heroContent">
+    <div class="hero-skeleton">
+      <div class="sk-line sk-badge"></div>
+      <div class="sk-line sk-title"></div>
+      <div class="sk-line sk-meta"></div>
+      <div class="sk-line sk-plot"></div>
+      <div class="sk-line sk-plot short"></div>
+      <div class="sk-btns"></div>
+    </div>
+  </div>
+  <div class="hero-dots" id="heroDots"></div>
+</section>
+
+<div id="homePage">
+  <div id="sectionsContainer"></div>
+</div>
+
+<div id="searchPage" class="hidden">
+  <div class="search-page-header">
+    <h2>Results for &ldquo;<span id="searchLabel"></span>&rdquo;</h2>
+  </div>
+  <div id="searchGrid" class="results-grid"></div>
+  <div id="searchLoader" class="loader-wrap hidden"><div class="spinner"></div></div>
+  <div id="paginationBar" class="pagination hidden">
+    <button id="loadMoreBtn">Load More</button>
+    <span id="pageCount"></span>
+  </div>
+</div>
+
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+  <div class="modal-bg" id="modalBg"></div>
+  <div class="modal-box">
+    <button class="modal-close" id="modalClose" aria-label="Close">&#x2715;</button>
+    <div class="modal-poster-wrap">
+      <img id="mPoster" src="" alt=""/>
+      <div class="modal-poster-placeholder hidden" id="mPosterPlaceholder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" width="48" height="48"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+      </div>
+    </div>
+    <div class="modal-body">
+      <h2 id="mTitle"></h2>
+      <div class="modal-tags" id="mTags"></div>
+      <p id="mPlot"></p>
+      <div class="modal-sources">
+        <p class="sources-label">Stream sources — if one fails, try another:</p>
+        <div class="sources-grid" id="sourcesGrid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
